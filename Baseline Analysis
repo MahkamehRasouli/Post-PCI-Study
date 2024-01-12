@@ -1,0 +1,604 @@
+```{r}
+library(tidyverse)
+library(NHANES)
+library(descriptr)
+library(rlang)
+library(dplyr)
+library(tidyverse)
+library(flextable)
+library(officer)
+library(table1)
+library(rrtable)
+library(htmltools)
+library(gtsummary)
+library(car)
+```
+
+```{r}
+#Cleaning Insurance - Categories changed! --- Clean Variable = Insurance
+ins_raw <- pmci_raw %>% 
+select(medicare, medicaid, private, military, state, indian, non_us, insurance) %>% 
+mutate(medicare = case_when(
+      medicare == 'Yes' ~ "Medicare",
+      medicare == 'No' ~ NA)) %>% 
+mutate(private = case_when(
+      private == 'Yes' ~ "Private",
+      private == 'No' ~ NA)) %>% 
+mutate(medicaid = case_when(
+      medicaid == 'Yes' ~ "Medicaid",
+      medicaid == 'No' ~ NA)) %>% 
+mutate(military = case_when(
+      military == 'Yes' ~ "Military",
+      military == 'No' ~ NA)) %>% 
+mutate(state = case_when(
+      state == 'Yes' ~ "State",
+      state == 'No' ~ NA)) %>% 
+mutate(indian = case_when(
+      indian == 'Yes' ~ "Indian",
+      indian == 'No' ~ NA)) %>% 
+mutate(non_us = case_when(
+      non_us == 'Yes' ~ "Non_US",
+      non_us == 'No' ~ NA)) %>% 
+mutate(insurance = case_when(
+      insurance == 'No' ~ "No_Insurance",
+      insurance == 'Yes' ~ NA))
+
+ins_raw <- ins_raw %>% 
+  unite(col="insurance_type", 
+        c(medicare, medicaid, military, private, state, indian, non_us, insurance), na.rm=TRUE)
+
+ins_raw$insurance_type[75] <- NA
+ins_raw$insurance_type[292] <- NA
+ins_raw$insurance_type[607] <- NA
+ins_raw$insurance_type[841] <- NA
+
+ins_raw$insurance_type[is.na(ins_raw$insurance_type)] <- "Unknown_ins"
+
+ins_raw %>% 
+  count(insurance_type)
+
+ins_raw <- ins_raw %>% 
+mutate(Insurance = fct_collapse(insurance_type, 
+  No_Insurance = c("No_Insurance", "Unknown_ins", "Indian", "Military"),
+  Medicare = c("Medicare", "Medicare_Private", "Medicare_State", "Medicare_Indian", "Medicare_Military"),
+  Medicaid = c("Medicaid", "Medicaid_Private", "Medicaid_State", "Medicare_Medicaid", "State"),
+  Private = c("Private"))) %>% 
+mutate(Insurance = factor(Insurance, levels=c("Medicare", "No_Insurance","Private", "Medicaid")))
+
+ins_raw %>% 
+  count(Insurance)
+```
+
+```{r}
+#Cleaning Race - Categories changed! --- Clean Variable = Race
+race_raw <- pmci_raw %>% 
+select(white, black, asian, amindian, hawaii, hispanic) %>% 
+mutate(white = case_when(
+      white == 'Yes' ~ "White",
+      white == 'No' ~ NA)) %>% 
+mutate(asian = case_when(
+      asian == 'Yes' ~ "Asian",
+      asian == 'No' ~ NA)) %>% 
+mutate(black = case_when(
+      black == 'Yes' ~ "Black",
+      black == 'No' ~ NA)) %>% 
+mutate(hispanic = case_when(
+      hispanic == 'Yes' ~ "Hispanic",
+      hispanic == 'No' ~ NA)) %>% 
+mutate(amindian = case_when(
+      amindian == 'Yes' ~ "AmInd",
+      amindian == 'No' ~ NA)) %>% 
+mutate(hawaii = case_when(
+      hawaii == 'Yes' ~ "Hawaii",
+      hawaii == 'No' ~ NA))
+
+race_raw <- race_raw %>% 
+  unite(col="final_race", 
+        c(hispanic, amindian, white, black, asian, hawaii), na.rm=TRUE)
+
+race_raw %>% 
+  count(final_race)
+
+race_raw <- race_raw %>% 
+mutate(Race = fct_collapse(final_race,
+  White = c("White"),                 
+  Asian_Pacific_Islander = c("Hawaii", "Asian", "AmInd", "White_Asian"),
+  Hispanic = c("Hispanic", "Hispanic_Asian", "Hispanic_White", "Hispanic_Hawaii"),
+  Black = c("Black", "White_Black"))) %>% 
+mutate(Race = factor(Race, levels=c("White", "Black", "Asian_Pacific_Islander", "Hispanic")))
+
+race_raw %>% 
+  count(Race)
+```
+```{r}
+#Making ACEi/ARB --- NA = 11 --- Clean Variable = ACEi_ARB
+ace_arb_raw <- pmci_raw %>% 
+select(registry_ace, registry_arb) %>% 
+mutate(registry_ace = fct_collapse(registry_ace,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_arb = fct_collapse(registry_arb,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason")))
+
+ace_arb_raw <- ace_arb_raw %>% 
+  unite(col="ACEi_ARB", 
+        c(registry_ace, registry_arb), na.rm=TRUE)
+
+ace_arb_raw <- ace_arb_raw %>% 
+mutate(ACEi_ARB = case_when(
+    ACEi_ARB == "Yes_Yes" ~ "Yes",
+    ACEi_ARB == "Yes_No" ~ "Yes",
+    ACEi_ARB == "No_Yes" ~ "Yes",
+    ACEi_ARB == "No_No" ~ "No",
+    ACEi_ARB == "Yes" ~ "Yes"
+  ))
+
+ace_arb_raw %>% 
+mutate(ACEi_ARB = factor(ACEi_ARB, levels=c("Yes", "No")))
+
+ace_arb_raw %>% 
+  count(ACEi_ARB)
+```
+```{r}
+#Making P2Y12 --- NA = 5 --- Clean Variable = P2Y12 --- Need some row number cahnges in the loop to avoid NAs. Any suggestion?
+p2y12_raw <- pmci_raw %>% 
+select(registry_clop, registry_tica, registry_prasu) %>% 
+mutate(registry_clop = fct_collapse(registry_clop,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_tica = fct_collapse(registry_tica,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_prasu = fct_collapse(registry_prasu,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason")))
+
+p2y12_raw$P2Y12 <- character(nrow(p2y12_raw))
+
+#Need to change the row number to avoid NAs.
+for (i in 845:nrow(p2y12_raw)) {
+  if (p2y12_raw$registry_clop[i] == "No" && p2y12_raw$registry_tica[i] == "No" && p2y12_raw$registry_prasu[i] == "No") {
+    p2y12_raw$P2Y12[i] <- "No"
+  } else {
+    p2y12_raw$P2Y12[i] <- "Yes"
+  }
+}
+
+p2y12_raw$P2Y12[844] <- NA
+p2y12_raw$P2Y12[738] <- NA
+p2y12_raw$P2Y12[580] <- NA
+p2y12_raw$P2Y12[561] <- NA
+p2y12_raw$P2Y12[409] <- NA
+
+p2y12_raw %>% 
+mutate(P2Y12 = factor(P2Y12, levels=c("Yes", "No")))
+
+p2y12_raw %>% 
+  count(P2Y12)
+```
+```{r}
+#Making Anticog --- NA = 12 --- Clean Variable = Anticog --- Need some row number cahnges in the loop to avoid NAs. Any suggestion?
+anticog_raw <- pmci_raw %>% 
+select(registry_vka, registry_api, registry_dabi, registry_edo, registry_riva) %>% 
+mutate(registry_vka = fct_collapse(registry_vka,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_api = fct_collapse(registry_api,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_dabi = fct_collapse(registry_dabi,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_edo = fct_collapse(registry_edo,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(registry_riva = fct_collapse(registry_riva,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason")))
+
+anticog_raw$Anticog <- character(nrow(anticog_raw))
+
+for (i in 845:nrow(anticog_raw)) {
+  if (anticog_raw$registry_vka[i] == "Yes" || anticog_raw$registry_api[i] == "Yes" || anticog_raw$registry_dabi[i] == "Yes" || anticog_raw$registry_edo[i] == "Yes" || anticog_raw$registry_riva[i] == "Yes") {
+    anticog_raw$Anticog[i] <- "Yes"
+  } else {
+    anticog_raw$Anticog[i] <- "No"
+  }
+}
+
+anticog_raw$Anticog[403] <- NA
+anticog_raw$Anticog[404] <- NA
+anticog_raw$Anticog[405] <- NA
+anticog_raw$Anticog[408] <- NA
+anticog_raw$Anticog[409] <- NA
+anticog_raw$Anticog[410] <- NA
+anticog_raw$Anticog[513] <- NA
+anticog_raw$Anticog[529] <- NA
+anticog_raw$Anticog[561] <- NA
+anticog_raw$Anticog[580] <- NA
+anticog_raw$Anticog[738] <- NA
+anticog_raw$Anticog[844] <- NA
+anticog_raw$Anticog[406] <- "Yes"
+anticog_raw$Anticog[407] <- "Yes"
+
+anticog_raw %>% 
+mutate(Anticog = factor(Anticog, levels=c("Yes", "No")))
+
+anticog_raw %>% 
+  count(Anticog)
+```
+```{r}
+#Other variables cleaning.
+else_raw <- pmci_raw %>% 
+select(tobacco, registry_bb, registry_asa, registry_pcsk9, registry_statin, sex, htn, hld, dm, mi, hf, pad, cvd, cld, dialysis, pci, cabg, fhx_cad) %>% 
+mutate(Tobacco = fct_collapse(tobacco,
+  Never = c("Never", "Unknown if ever smoked"),
+  Current_Smoker = c("Current - Every day", "Current - Some days", "Smoker - Current status unknown"),
+  Former = c("Former"))) %>% 
+mutate(Tobacco = factor(Tobacco, levels=c("Never", "Current_Smoker", "Former"))) %>% 
+mutate(BB = fct_collapse(registry_bb,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>%
+mutate(BB = factor(BB, levels=c("Yes", "No"))) %>% 
+mutate(ASA = fct_collapse(registry_asa,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(ASA = factor(ASA, levels=c("Yes", "No"))) %>% 
+mutate(PCSK9i = fct_collapse(registry_pcsk9,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(PCSK9i = factor(PCSK9i, levels=c("Yes", "No"))) %>% 
+mutate(Statin = fct_collapse(registry_statin,
+  Yes = c("Yes"),
+  No = c("No - no reason", "No - Medical reason"))) %>% 
+mutate(Statin = factor(Statin, levels=c("Yes", "No"))) %>% 
+mutate(Sex = factor(sex, levels=c("Female", "Male"))) %>% 
+mutate(HTN = factor(htn, levels=c("Yes", "No"))) %>% 
+mutate(DLD = factor(hld, levels=c("Yes", "No"))) %>% 
+mutate(DM = factor(dm, levels=c("Yes", "No"))) %>% 
+mutate(MI = factor(mi, levels=c("Yes", "No"))) %>% 
+mutate(HF = factor(hf, levels=c("Yes", "No"))) %>% 
+mutate(PVD = factor(pad, levels=c("Yes", "No"))) %>% 
+mutate(CVD = factor(cvd, levels=c("Yes", "No"))) %>% 
+mutate(CLD = factor(cld, levels=c("Yes", "No"))) %>% 
+mutate(Dialysis = factor(dialysis, levels=c("Yes", "No"))) %>% 
+mutate(PCI = factor(pci, levels=c("Yes", "No"))) %>%
+mutate(CABG = factor(cabg, levels=c("Yes", "No"))) %>%
+mutate(CAD = factor(fhx_cad, levels=c("Yes", "No")))
+```
+
+```{r}
+#Selecting Outcome Variables.
+Rest <- pmci_raw %>% 
+  select(study_id, age, sbpblx, ldlblx, bmiblx, a1cblx)
+
+#How much the goal (LDL < 70) is met?
+#1 means < 70, 2 means < 100, and 3 means >= 100 --- So, just 1 is acceptable.
+Restc <- Rest %>% 
+  mutate(ldlblx = case_when(
+      ldlblx == '1' ~ "1",
+      ldlblx == '2' ~ "0",
+      ldlblx == '3' ~ "0",
+      ldlblx == NA ~ NA))
+```
+
+```{r}
+#Making the final clean dataframe. --- Baseline_Clean
+Base <- cbind(else_raw, ins_raw, race_raw, p2y12_raw, anticog_raw, ace_arb_raw)
+
+Base_All <- cbind(Base, Restc)
+
+Baseline_Clean <- Base_All %>% 
+  select(Study_ID = study_id, Age = age, Gender = Sex, Race, Insurance, HTN, DLD, DM, MI, HF, PVD, CVD, CLD, Dialysis, PCI, CABG, Tobacco, CAD, ACEi_ARB, BB, Statin, PCSK9i, ASA, P2Y12, Anticog, SBPbl = sbpblx, LDLbl = ldlblx, BMIbl = bmiblx, A1Cbl = a1cblx)
+```
+```{r}
+Baseline_Clean <- Baseline_Clean %>% 
+  mutate(A1Cblc = case_when(
+      A1Cbl == 1 ~ "Yes",
+      A1Cbl == 0 ~ "No",
+      A1Cbl == NA ~ NA)) %>% 
+  mutate(LDLblc = case_when(
+      LDLbl == 1 ~ "Yes",
+      LDLbl == 0 ~ "No",
+      LDLbl == NA ~ NA)) %>% 
+  mutate(SBPblc = case_when(
+      SBPbl == 1 ~ "Yes",
+      SBPbl == 0 ~ "No",
+      SBPbl == NA ~ NA)) %>% 
+  mutate(BMIblc = case_when(
+      BMIbl == 1 ~ "Yes",
+      BMIbl == 0 ~ "No",
+      BMIbl == NA ~ NA))
+
+Baseline_Clean %>% 
+  mutate(Anticog = factor(Anticog, levels=c("Yes", "No"))) %>% 
+  mutate(P2Y12 = factor(P2Y12, levels=c("Yes", "No"))) %>% 
+  mutate(ACEi_ARB = factor(ACEi_ARB, levels=c("Yes", "No"))) %>% 
+  mutate(A1Cblc = factor(A1Cblc, levels=c("Yes", "No"))) %>% 
+  mutate(LDLblc = factor(LDLblc, levels=c("Yes", "No"))) %>% 
+  mutate(BMIblc = factor(BMIblc, levels=c("Yes", "No"))) %>%
+  mutate(SBPblc = factor(SBPblc, levels=c("Yes", "No")))
+```
+
+```{r}
+#all goals met
+Fourgoalna <- Baseline_Clean %>% 
+  drop_na(LDLblc, A1Cblc, BMIblc, SBPblc)
+
+Fourgoalna$Four_Goal <- character(nrow(Fourgoalna))
+
+for (i in 1:nrow(Fourgoalna))
+  {if (Fourgoalna$BMIblc[i] == "Yes" && Fourgoalna$A1Cblc[i] == "Yes" && Fourgoalna$LDLblc[i] == "Yes" && Fourgoalna$SBPblc[i] == "Yes") {
+    Fourgoalna$Four_Goal[i] <- "Yes"}
+  else {Fourgoalna$Four_Goal[i] <- "No"}
+}
+
+Fourgoalna %>% 
+  count(Four_Goal)
+
+#no goal met
+Fourgoalna$No_Goal <- character(nrow(Fourgoalna))
+
+for (i in 1:nrow(Fourgoalna))
+  {if (Fourgoalna$BMIblc[i] == "No" && Fourgoalna$A1Cblc[i] == "No" && Fourgoalna$LDLblc[i] == "No" && Fourgoalna$SBPblc[i] == "No") {
+    Fourgoalna$No_Goal[i] <- "Yes"}
+  else {Fourgoalna$No_Goal[i] <- "No"}
+}
+
+Fourgoalna %>% 
+  count(No_Goal)
+```
+
+```{r}
+Baseline_Clean %>% 
+  filter(!is.na(A1Cblc)) %>% 
+  filter(DM == "Yes") %>% 
+  count(A1Cblc) %>% 
+  mutate(prop.table(n) * 100)
+
+Baseline_Clean %>% 
+  filter(!is.na(A1Cblc)) %>% 
+  filter(DM == "Yes") %>% 
+  group_by(Race) %>% 
+  count(A1Cblc) %>% 
+  mutate(prop.table(n) * 100) %>%
+  ungroup()
+```
+
+```{r}
+t1 <- table1(~ Age + Gender + Insurance + HTN + DLD + DM + MI + HF + PVD + CVD + CLD + Dialysis + PCI + CABG + Tobacco + CAD + ACEi_ARB + BB + Statin + PCSK9i + ASA + P2Y12 + Anticog + SBPblc + LDLblc + BMIblc + A1Cblc | Baseline_Clean$Race, data = Baseline_Clean, na.action = na.pass)
+
+# Convert table1 to flextable format which can be saved as MS Word document
+tbl1_ft <- t1flex(t1) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("Table 1. Baseline Characteristics") %>% 
+  save_as_docx(path="Table1_Baseline_Characteristics.docx")
+
+t1b <- table1(~ Four_Goal + No_Goal | Fourgoalna$Race, data = Fourgoalna, na.action = na.pass)
+
+tbl1b_ft <- t1flex(t1b) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("Table 1b. Baseline Characteristics - ALL Goal & No Goal") %>% 
+  save_as_docx(path="Table1b_Baseline_Characteristics.docx")
+```
+
+```{r}
+BMI_clean <- Baseline_Clean %>% 
+  filter(!is.na(BMIblc)) %>% 
+mutate(BMIblc = factor(BMIblc))
+
+BMIUni <- BMI_clean %>%
+  select(Age, Gender, Race, Insurance, HTN, DLD, DM, MI, HF, PVD, CVD, CLD, Dialysis, PCI, CABG, Tobacco, CAD, ACEi_ARB, BB, Statin, PCSK9i, ASA, P2Y12, Anticog, BMIblc) %>%
+tbl_uvregression(
+    method = glm,
+    y = BMIblc,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 2))
+
+BMIUnit <- as_flex_table(BMIUni) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("BMI Univariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2a.BMIUnit.docx")
+
+#multivariate
+BMIMulti <- BMI_clean %>% 
+  glm(formula = BMIblc ~ Age + Gender + Race + Insurance + DLD + HF + PVD + CVD + PCSK9i + Anticog, data = ., family = binomial()) %>% 
+  tbl_regression(exponentiate = TRUE)
+
+BMIMultit <- as_flex_table(BMIMulti) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("BMI Multivariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2b.BMIMultit.docx")
+
+tbl_merge_flex <- tbl_merge(
+  tbls = list(BMIUni, BMIMulti),
+  tab_spanner = c("**Univariate**", "**Multivariate**")) %>%
+  as_flex_table() %>%
+  add_header_lines(values = "Table2. BMI Univariate and Multivariate Analysis") %>%
+  bold(part = "header") %>% 
+  save_as_docx(path="Table2. BMI Comb.docx")
+```
+
+```{r}
+SBP_clean <- Baseline_Clean %>% 
+  filter(!is.na(SBPblc)) %>% 
+mutate(SBPblc = factor(SBPblc))
+
+SBPUni <- SBP_clean %>%
+  select(Age, Gender, Race, Insurance, HTN, DLD, DM, MI, HF, PVD, CVD, CLD, Dialysis, PCI, CABG, Tobacco, CAD, ACEi_ARB, BB, Statin, PCSK9i, ASA, P2Y12, Anticog, SBPblc) %>%
+tbl_uvregression(
+    method = glm,
+    y = SBPblc,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 2))
+
+SBPUnit <- as_flex_table(SBPUni) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("SBP Univariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2a.SBPUnit.docx")
+
+#multivariate
+SBPMulti <- SBP_clean %>% 
+  glm(formula = SBPblc ~ Gender + Race + Insurance + DLD + DM + Dialysis + Tobacco + ACEi_ARB + Statin + P2Y12 + Anticog, data = ., family = binomial()) %>% 
+  tbl_regression(exponentiate = TRUE)
+
+SBPMultit <- as_flex_table(SBPMulti) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("SBP Multivariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2b.SBPMultit.docx")
+
+tbl_merge_flex <- tbl_merge(
+  tbls = list(SBPUni, SBPMulti),
+  tab_spanner = c("**Univariate**", "**Multivariate**")) %>%
+  as_flex_table() %>%
+  add_header_lines(values = "Table2. SBP Univariate and Multivariate Analysis") %>%
+  bold(part = "header") %>% 
+  save_as_docx(path="Table2. SBP Comb.docx")
+```
+
+```{r}
+LDL_clean <- Baseline_Clean %>% 
+  filter(!is.na(LDLblc)) %>% 
+mutate(LDLblc = factor(LDLblc))
+
+LDLUni <- LDL_clean %>%
+  select(Age, Gender, Race, Insurance, HTN, DLD, DM, MI, HF, PVD, CVD, CLD, Dialysis, PCI, CABG, Tobacco, CAD, ACEi_ARB, BB, Statin, PCSK9i, ASA, P2Y12, Anticog, LDLblc) %>%
+tbl_uvregression(
+    method = glm,
+    y = LDLblc,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 2))
+
+LDLUnit <- as_flex_table(LDLUni) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("LDL Univariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2a.LDLUnit.docx")
+
+#multivariate
+LDLMulti <- LDL_clean %>% 
+  glm(formula = LDLblc ~ Age + Race + Insurance + HTN + DLD + DM + MI + Dialysis + PCI + CABG + Tobacco + P2Y12, data = ., family = binomial()) %>% 
+  tbl_regression(exponentiate = TRUE)
+
+LDLMultit <- as_flex_table(LDLMulti) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("LDL Multivariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2b.LDLMultit.docx")
+
+tbl_merge_flex <- tbl_merge(
+  tbls = list(LDLUni, LDLMulti),
+  tab_spanner = c("**Univariate**", "**Multivariate**")) %>%
+  as_flex_table() %>%
+  add_header_lines(values = "Table2. LDL Univariate and Multivariate Analysis") %>%
+  bold(part = "header") %>% 
+  save_as_docx(path="Table2. LDL Comb.docx")
+```
+
+```{r}
+A1C_clean <- Baseline_Clean %>% 
+  filter(!is.na(A1Cblc)) %>% 
+mutate(A1Cblc = factor(A1Cblc))
+
+A1CUni <- A1C_clean %>%
+  select(Age, Gender, Race, Insurance, HTN, DLD, DM, MI, HF, PVD, CVD, CLD, Dialysis, PCI, CABG, Tobacco, CAD, ACEi_ARB, BB, Statin, PCSK9i, ASA, P2Y12, Anticog, A1Cblc) %>%
+tbl_uvregression(
+    method = glm,
+    y = A1Cblc,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 2))
+
+A1CUnit <- as_flex_table(A1CUni) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("A1C Univariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2a.A1CUnit.docx")
+
+#multivariate
+A1CMulti <- A1C_clean %>% 
+  glm(formula = A1Cblc ~ Gender + Race + HTN + DLD + HF + Tobacco, data = ., family = binomial()) %>% 
+  tbl_regression(exponentiate = TRUE)
+
+A1CMultit <- as_flex_table(A1CMulti) %>% 
+  fit_to_width(max_width = 5) %>%
+  fontsize(size = 8, part = "header") %>% 
+  fontsize(size = 8) %>% 
+  set_caption("A1C Multivariate Logistic Regression Analysis") %>% 
+  save_as_docx(path="Table2b.A1CMultit.docx")
+
+tbl_merge_flex <- tbl_merge(
+  tbls = list(A1CUni, A1CMulti),
+  tab_spanner = c("**Univariate**", "**Multivariate**")) %>%
+  as_flex_table() %>%
+  add_header_lines(values = "Table2. A1C Univariate and Multivariate Analysis") %>%
+  bold(part = "header") %>% 
+  save_as_docx(path="Table2. A1C Comb.docx")
+```
+
+```{r}
+Goal_Num <- Baseline_Clean %>% 
+  select(SBPbl, A1Cbl, BMIbl, LDLbl)
+
+Goal_Num %>% 
+mutate(SBPbln = as.numeric(SBPbl)) %>% 
+mutate(LDLbln = as.numeric(LDLbl)) %>% 
+mutate(BMIbln = as.numeric(BMIbl)) %>% 
+mutate(A1Cbln = as.numeric(A1Cbl))
+
+Goal_Num <- Goal_Num %>%  
+  mutate(A1Cbln = case_when(
+      A1Cbl == '1' ~ 1,
+      A1Cbl == '0' ~ 0,
+      A1Cbl == NA ~ NA)) %>% 
+  mutate(SBPbln = case_when(
+      SBPbl == '1' ~ 1,
+      SBPbl == '0' ~ 0,
+      SBPbl == NA ~ NA)) %>% 
+  mutate(LDLbln = case_when(
+      LDLbl == '1' ~ 1,
+      LDLbl == '0' ~ 0,
+      LDLbl == NA ~ NA)) %>% 
+  mutate(BMIbln = case_when(
+      BMIbl == '1' ~ 1,
+      BMIbl == '0' ~ 0,
+      BMIbl == NA ~ NA))
+
+Goal_NumN <- Goal_Num %>% 
+  select(A1Cbln, BMIbln, SBPbln, LDLbln)
+
+Goal_NumN$GoalN <- rowSums(Goal_NumN, na.rm=FALSE)
+
+Baseline_Final <- cbind(Baseline_Clean, Goal_NumN)
+
+Baseline_Final %>%
+  filter(!is.na(GoalN)) %>% 
+  count(GoalN) %>% 
+  mutate(prop.table(n) * 100)
+
+Baseline_Final %>% 
+  filter(!is.na(GoalN)) %>% 
+  group_by(Race) %>% 
+  count(GoalN) %>% 
+  mutate(prop.table(n) * 100) %>%
+  ungroup()
+```
